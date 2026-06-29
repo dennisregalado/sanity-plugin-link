@@ -1,4 +1,3 @@
-<img width="562" height="800" alt="CleanShot 2026-06-29 at 11 56 42" src="https://github.com/user-attachments/assets/49e3e34a-3896-4ec8-944a-ba509ed8d85b" />
 # sanity-plugin-link
 <img width="800" height="565" alt="CleanShot 2026-06-29 at 11 55 43" src="https://github.com/user-attachments/assets/a3bf2f4a-d85d-4612-9874-06a8a7bb9843" />
 A small Sanity Studio link field for choosing a label, a URL, and optionally a weak reference, inspired by Shopify's link picker.
@@ -15,6 +14,9 @@ When document routes are configured, it also adds:
 The plugin stays intentionally unopinionated. It stores the link data, then lets your GROQ projection and frontend decide how references turn into URLs.
 
 On the Studio side, the input prevents invalid URL values. When `url` is present, it is already normalized as a valid internal path, query string, hash, external URL, `mailto:`, or `tel:` link.
+
+## Demo
+<img width="562" height="800" alt="CleanShot 2026-06-29 at 11 56 42" src="https://github.com/user-attachments/assets/49e3e34a-3896-4ec8-944a-ba509ed8d85b" />
 
 ## Installation
 
