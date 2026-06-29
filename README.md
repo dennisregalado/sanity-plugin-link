@@ -184,8 +184,13 @@ import {defineField} from 'sanity'
 linkPlugin({
   fields: [
     defineField({
-      name: 'ariaLabel',
-      title: 'ARIA label',
+      name: 'parameters',
+      title: 'Parameters',
+      type: 'string',
+    }),
+    defineField({
+      name: 'anchor',
+      title: 'Anchor',
       type: 'string',
     }),
   ],
