@@ -45,6 +45,7 @@ const LinkContext = createContext<{
   onChange: ObjectInputProps['onChange']
   openPopover: () => void
   closePopover: () => void
+  canOpenPopover: boolean
   searchQuery: string
   setSearchQuery: (query: string) => void
   flattenedRoutes: StaticLinkRoute[]
@@ -60,6 +61,7 @@ export function LinkInput(props: LinkInputProps) {
   const menu = useMemo(() => ({routes}), [routes])
   const flattenedRoutes = useMemo(() => getFlattenedLinkRoutes(menu.routes), [menu])
   const linkReferenceTypes = useMemo(() => getReferenceTypesFromRoutes(menu.routes), [menu])
+  const canOpenPopover = flattenedRoutes.length > 0 || linkReferenceTypes.length > 0
 
   useClickOutsideEvent(
     () => {
@@ -77,7 +79,7 @@ export function LinkInput(props: LinkInputProps) {
   const referenceTypes = useMemo(() => {
     const schemaReferenceTypes = getReferenceTypesFromSchemaType(props.schemaType)
     return schemaReferenceTypes.length ? schemaReferenceTypes : linkReferenceTypes
-  }, [props.schemaType])
+  }, [linkReferenceTypes, props.schemaType])
 
   const labelField = useMemo(() => {
     return props.members.filter((member: any) => member.name === 'label')
@@ -121,18 +123,21 @@ export function LinkInput(props: LinkInputProps) {
     <LinkContext.Provider
       value={{
         onChange: props.onChange,
-        openPopover: () => setPopoverOpen(true),
+        openPopover: () => {
+          if (canOpenPopover) setPopoverOpen(true)
+        },
         closePopover: () => {
           setPopoverOpen(false)
           setSearchQuery('')
         },
+        canOpenPopover,
         searchQuery,
         setSearchQuery,
         flattenedRoutes,
         replaceReference: (inputProps) => {
           inputProps.onChange(unset())
           setSearchQuery('')
-          setPopoverOpen(true)
+          if (canOpenPopover) setPopoverOpen(true)
           props.onPathFocus?.(['url'])
         },
       }}
@@ -187,7 +192,7 @@ export function LinkInput(props: LinkInputProps) {
         padding={0}
         placement="top"
         animate
-        open={popoverOpen}
+        open={canOpenPopover && popoverOpen}
       />
       <Grid gridTemplateColumns={2} gapX={1} gapY={3} width="fill">
         <Box>
@@ -419,11 +424,11 @@ function URLInput(props: InputProps) {
       : null
 
     if (matchedRoute?.icon) {
-      return normalizeLinkIcon(matchedRoute.icon)?.()
+      return normalizeLinkIcon(matchedRoute.icon, {shift: true})?.()
     }
 
     if (normalizedHref) {
-      return getSystemLinkIcon(normalizedHref)()
+      return getSystemLinkIcon(normalizedHref, {shift: true})()
     }
 
     return undefined
@@ -448,7 +453,9 @@ function URLInput(props: InputProps) {
       onChange: (event: any) => {
         const nextValue = event.currentTarget.value
         setDraftValue(nextValue)
-        linkContext.setSearchQuery(nextValue)
+        if (linkContext.canOpenPopover) {
+          linkContext.setSearchQuery(nextValue)
+        }
       },
       onClear: () => {
         linkContext.closePopover()
@@ -467,6 +474,10 @@ function URLInput(props: InputProps) {
       },
       onFocus: () => {
         setFocused(true)
+        if (!linkContext.canOpenPopover) {
+          return
+        }
+
         const normalizedHref = normalizeLinkHref(draftValue)
         const isSavedHref = normalizedHref === draftValue.trim()
 

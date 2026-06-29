@@ -1,18 +1,18 @@
 {
   "name": "sanity-plugin-link",
-  "version": "1.0.3",
-  "description": "",
+  "version": "1.0.4",
+  "description": "A small Sanity Studio link field for choosing a label, a URL, or a weak reference.",
   "keywords": [
     "sanity",
     "sanity-plugin"
   ],
-  "homepage": "https://github.com/seaplaneshellcorp/vacation-oil-frontend#readme",
+  "homepage": "https://github.com/dennisregalado/sanity-plugin-link#readme",
   "bugs": {
-    "url": "https://github.com/seaplaneshellcorp/vacation-oil-frontend/issues"
+    "url": "https://github.com/dennisregalado/sanity-plugin-link/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/seaplaneshellcorp/vacation-oil-frontend.git"
+    "url": "git+https://github.com/dennisregalado/sanity-plugin-link.git"
   },
   "license": "MIT",
   "author": "Dennis Regalado <dennis@baggy.studio>",
@@ -20,20 +20,13 @@
   "type": "module",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
-  "publishConfig": {
-    "exports": {
-      ".": {
-        "default": "./dist/index.js"
-      },
-      "./package.json": "./package.json"
-    }
-  },
   "types": "./dist/index.d.ts",
+  "browserslist": "extends @sanity/browserslist-config",
   "files": [
     "dist"
   ],

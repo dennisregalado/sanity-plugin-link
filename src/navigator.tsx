@@ -279,7 +279,13 @@ type MenuItem = {
   filterParams?: QueryParams;
 };
 
-function NormalizedLinkIcon({ children }: { children: React.ReactNode }) {
+function NormalizedLinkIcon({
+  children,
+  shift = false,
+}: {
+  children: React.ReactNode;
+  shift?: boolean;
+}) {
   return (
     <span
       style={{
@@ -288,7 +294,7 @@ function NormalizedLinkIcon({ children }: { children: React.ReactNode }) {
         height: 20,
         justifyContent: 'center',
         lineHeight: 0,
-        transform: 'translate(-3px, -1px)',
+        transform: shift ? 'translate(-3px, -1px)' : undefined,
         verticalAlign: 'middle',
         width: 20,
       }}
@@ -308,14 +314,17 @@ function NormalizedLinkIcon({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function normalizeLinkIcon(icon: LinkIconInput | undefined): LinkIcon | undefined {
+export function normalizeLinkIcon(
+  icon: LinkIconInput | undefined,
+  options?: {shift?: boolean},
+): LinkIcon | undefined {
   if (!icon) {
     return undefined;
   }
 
   if (typeof icon === 'function' || isReactComponentObject(icon)) {
     return () => (
-      <NormalizedLinkIcon>
+      <NormalizedLinkIcon shift={options?.shift}>
         {React.createElement(icon as React.ElementType)}
       </NormalizedLinkIcon>
     );
@@ -323,7 +332,7 @@ export function normalizeLinkIcon(icon: LinkIconInput | undefined): LinkIcon | u
 
   return () =>
     (
-      <NormalizedLinkIcon>
+      <NormalizedLinkIcon shift={options?.shift}>
         {typeof icon === 'string' ? <Text>{icon}</Text> : (icon as React.ReactNode)}
       </NormalizedLinkIcon>
     );
@@ -350,11 +359,11 @@ function getSystemLinkType(href: string): SystemLinkType {
   return isInternalLinkHref(href) ? 'internal' : 'external';
 }
 
-export function getSystemLinkIcon(href: string): LinkIcon {
+export function getSystemLinkIcon(href: string, options?: {shift?: boolean}): LinkIcon {
   const Icon = defaultLinkTypeIcons[getSystemLinkType(href)];
 
   return () => (
-    <NormalizedLinkIcon>
+    <NormalizedLinkIcon shift={options?.shift}>
       <Icon size={ICON_SIZE} />
     </NormalizedLinkIcon>
   );

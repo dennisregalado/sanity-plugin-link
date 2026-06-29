@@ -53,15 +53,24 @@ export const linkPlugin = definePlugin<LinkFieldPluginOptions | void>((opts) => 
   const {icon, preview, routes, fields = []} = opts || {}
   const globalRoutes = resolveRoutes(routes)
   const globalReferenceTypes = getReferenceTypesFromRoutes(globalRoutes)
+  const referenceField = globalReferenceTypes.length
+    ? defineField({
+        name: 'reference',
+        title: 'Reference',
+        type: 'reference',
+        weak: true,
+        options: {
+          disableNew: true,
+        },
+        to: globalReferenceTypes.map((type) => ({type})),
+      })
+    : null
 
   const linkType = defineType({
     name: 'link',
     title: 'Link',
     type: 'object',
     icon,
-    options: {
-      // define Links go here
-    },
     preview: preview || {
       select: {
         label: 'label',
@@ -95,16 +104,7 @@ export const linkPlugin = definePlugin<LinkFieldPluginOptions | void>((opts) => 
             return 'Must be a path, query string, URL, email address, or phone number'
           }),
       }),
-      defineField({
-        name: 'reference',
-        title: 'Reference',
-        type: 'reference',
-        weak: true,
-        options: {
-          disableNew: true,
-        },
-        to: globalReferenceTypes.map((type) => ({type})),
-      }),
+      ...(referenceField ? [referenceField] : []),
       ...fields,
     ],
     components: {

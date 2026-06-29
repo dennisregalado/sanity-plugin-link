@@ -1,11 +1,14 @@
 # sanity-plugin-link
 
-A small Sanity Studio link field for choosing a label, a URL, or a weak reference, inspired by Shopify's link picker.
+A small Sanity Studio link field for choosing a label, a URL, and optionally a weak reference, inspired by Shopify's link picker.
 
-It registers a single `link` object type with three built-in fields:
+It registers a single `link` object type with two built-in fields:
 
 - `label` - editor-facing link text, like `Shop now`
 - `url` - a path, query string, hash, URL, email address, or phone number
+
+When document routes are configured, it also adds:
+
 - `reference` - a weak Sanity reference for internal links
 
 The plugin stays intentionally unopinionated. It stores the link data, then lets your GROQ projection and frontend decide how references turn into URLs.
@@ -70,7 +73,7 @@ type LinkValue = {
 
 For external links, paths, emails, phone numbers, hashes, and query strings, the value is stored in `url`.
 
-For internal document links, the value is stored in `reference`.
+For internal document links, configure document routes first. Those links are stored in `reference`.
 
 ## Querying Links
 
@@ -136,7 +139,7 @@ That keeps the frontend shape as `{label, url}`. Reference URLs are inferred fir
 
 ## Link Picker Routes
 
-The field works without configuration. Add routes only when you want the picker to offer shortcuts or browseable document folders.
+The field works without configuration for labels and URL values. Add routes when you want the picker to offer shortcuts or browseable document folders.
 
 ```ts
 import {defineConfig} from 'sanity'
@@ -150,13 +153,14 @@ export default defineConfig({
         linkRoute.route('Home', '/'),
         linkRoute.route('Shop', '/shop'),
         linkRoute.documents('Pages', 'page'),
+        linkRoute.documents('Products', 'product'),
       ],
     }),
   ],
 })
 ```
 
-You can also override routes on a single field:
+You can also override routes on a single field. Field-level overrides can narrow or customize the picker, but document routes still need to be declared at the plugin level so Sanity can define accepted reference types.
 
 ```ts
 defineField({
@@ -176,7 +180,7 @@ Document routes control which reference types the picker can select. Static rout
 
 ## Extending the Field
 
-If your project needs extra fields, append them at the plugin level:
+If your project needs extra fields, append them at the plugin level. You can also configure the Sanity preview for the `link` object with `preview`:
 
 ```ts
 import {defineField} from 'sanity'
@@ -194,6 +198,12 @@ linkPlugin({
       type: 'string',
     }),
   ],
+  preview: {
+    select: {
+      title: 'label',
+      subtitle: 'url',
+    },
+  },
 })
 ```
 
