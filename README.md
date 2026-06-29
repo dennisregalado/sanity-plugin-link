@@ -1,6 +1,5 @@
-<img width="800" height="565" alt="CleanShot 2026-06-29 at 11 55 43" src="https://github.com/user-attachments/assets/a3bf2f4a-d85d-4612-9874-06a8a7bb9843" />
 # sanity-plugin-link
-
+<img width="800" height="565" alt="CleanShot 2026-06-29 at 11 55 43" src="https://github.com/user-attachments/assets/a3bf2f4a-d85d-4612-9874-06a8a7bb9843" />
 A small Sanity Studio link field for choosing a label, a URL, and optionally a weak reference, inspired by Shopify's link picker.
 
 It registers a single `link` object type with two built-in fields:
