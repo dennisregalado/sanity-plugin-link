@@ -21,18 +21,12 @@ export type LinkValue = {
 }
 
 /**
- * Global options for the link plugin.
+ * Options for the link picker plugin (second argument to `linkPicker`).
  */
 export interface LinkFieldPluginOptions {
   /** Additional schema fields appended to the built-in link fields. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   fields?: any[]
-
-  /**
-   * Global route configuration for the link picker UI.
-   * Individual fields can override this via `options.routes`.
-   */
-  routes?: LinkRouteDefinition[] | LinksPluginProps
 
   icon?: BaseSchemaDefinition['icon']
 
@@ -55,5 +49,7 @@ export type LinkSchemaType = Omit<ObjectSchemaType, 'options'> & {
 }
 
 export type LinkInputProps = ObjectInputProps<LinkValue, LinkSchemaType> & {
-  pluginOptions?: Pick<LinkFieldPluginOptions, 'routes'>
+  pluginOptions?: {
+    routes?: LinkRouteDefinition[] | LinksPluginProps
+  }
 }

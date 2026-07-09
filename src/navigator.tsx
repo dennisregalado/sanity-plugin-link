@@ -17,8 +17,10 @@ import {
   Text,
 } from '@sanity/ui';
 import { AtSignIcon, GlobeIcon, LinkIcon, PhoneIcon, type LucideIcon } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import React, {
   useMemo,
+  useRef,
   useState,
   createContext,
   useContext,
@@ -36,6 +38,10 @@ import {
 const DefaultIcon = () => <Text>✨</Text>;
 const NAVIGATOR_MAX_HEIGHT = 390;
 const ICON_SIZE = 16;
+const VIRTUAL_LIST_OVERSCAN = 5;
+const VIRTUAL_ROW_ESTIMATE_SIZE = 52;
+const STICKY_ROW_BACKGROUND =
+  'var(--card-bg-color, var(--card-backdrop-color, canvas))';
 
 type LinkIcon = () => React.ReactNode;
 type LinkIconInput = React.ElementType | React.ReactNode | string;
@@ -218,39 +224,39 @@ export function isInternalLinkHref(value: string | null | undefined) {
   return Boolean(value?.startsWith('/') || value?.startsWith('#') || value?.startsWith('?'));
 }
 
-export const linkRoute = {
-  route(
-    title: string,
-    path: string,
-    options?: Omit<StaticLinkRoute, 'type' | 'title' | 'path'>,
-  ): StaticLinkRoute {
-    return { type: 'route', title, path, ...options };
-  },
-  group(
-    title: string,
-    routes: LinkRouteDefinition[],
-    options?: Omit<LinkRouteGroup, 'type' | 'title' | 'routes'>,
-  ): LinkRouteGroup {
-    return {
-      type: 'group',
-      title,
-      routes,
-      ...options,
-    };
-  },
-  documents(
-    title: string,
-    documentType: string,
-    options?: Omit<LinkDocumentFolder, 'type' | 'title' | 'documentType'>,
-  ): LinkDocumentFolder {
-    return {
-      type: 'documents',
-      title,
-      documentType,
-      ...options,
-    };
-  },
-};
+export function route(
+  title: string,
+  path: string,
+  options?: Omit<StaticLinkRoute, 'type' | 'title' | 'path'>,
+): StaticLinkRoute {
+  return {type: 'route', title, path, ...options}
+}
+
+export function group(
+  title: string,
+  routes: LinkRouteDefinition[],
+  options?: Omit<LinkRouteGroup, 'type' | 'title' | 'routes'>,
+): LinkRouteGroup {
+  return {
+    type: 'group',
+    title,
+    routes,
+    ...options,
+  }
+}
+
+export function documents(
+  title: string,
+  documentType: string,
+  options?: Omit<LinkDocumentFolder, 'type' | 'title' | 'documentType'>,
+): LinkDocumentFolder {
+  return {
+    type: 'documents',
+    title,
+    documentType,
+    ...options,
+  }
+}
 
 // Type definitions
 type NavigatorProps = {
@@ -457,7 +463,7 @@ function validateLinksConfig(config: LinksPluginProps) {
   }
 
   for (const warning of getLinkConfigWarnings(config.routes)) {
-    console.warn(`[sanity-plugin-links] ${warning}`);
+    console.warn(`[sanity-plugin-link-picker] ${warning}`);
   }
 }
 
@@ -774,6 +780,7 @@ function SearchResults({
         }}
         items={rows}
         maxHeight={NAVIGATOR_MAX_HEIGHT}
+        pinnedIndices={[0]}
         renderItem={(row) => {
           if (row.type === 'header') {
             return (
@@ -992,6 +999,7 @@ function Folder({
         }}
         items={rows}
         maxHeight={NAVIGATOR_MAX_HEIGHT}
+        pinnedIndices={[0]}
         renderItem={(row) => {
           if (row.type === 'back') {
             return (
@@ -1040,19 +1048,47 @@ function Folder({
   );
 }
 
-function ScrollableList<T>({
-  getKey,
-  items,
-  maxHeight,
-  renderItem,
-}: {
+type ScrollableListProps<T> = {
+  estimateSize?: (item: T, index: number) => number;
   getKey: (item: T, index: number) => string | number;
   items: T[];
   maxHeight: number;
+  overscan?: number;
+  pinnedIndices?: number[];
   renderItem: (item: T, index: number) => React.ReactNode;
-}) {
+};
+
+function ScrollableList<T>({
+  estimateSize = () => VIRTUAL_ROW_ESTIMATE_SIZE,
+  getKey,
+  items,
+  maxHeight,
+  overscan = VIRTUAL_LIST_OVERSCAN,
+  pinnedIndices = [],
+  renderItem,
+}: ScrollableListProps<T>) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedSet = useMemo(() => new Set(pinnedIndices), [pinnedIndices]);
+  const scrollableIndices = useMemo(
+    () => items.map((_, index) => index).filter((index) => !pinnedSet.has(index)),
+    [items, pinnedSet],
+  );
+
+  const virtualizer = useVirtualizer({
+    count: scrollableIndices.length,
+    estimateSize: (index) => {
+      const itemIndex = scrollableIndices[index];
+      return estimateSize(items[itemIndex], itemIndex);
+    },
+    getScrollElement: () => scrollRef.current,
+    overscan,
+  });
+
+  const virtualRows = virtualizer.getVirtualItems();
+
   return (
     <Box
+      ref={scrollRef}
       style={{
         maxHeight,
         overflowY: 'auto',
@@ -1060,23 +1096,56 @@ function ScrollableList<T>({
         width: '100%',
       }}
     >
-      <Stack>
-        {items.map((item, index) => {
-          const isFirst = index === 0;
-          const isLast = index === items.length - 1;
+      {pinnedIndices.map((index) => (
+        <Box
+          key={getKey(items[index], index)}
+          paddingX={1}
+          style={{
+            background: STICKY_ROW_BACKGROUND,
+            position: 'sticky',
+            top: 0,
+            zIndex: 1,
+          }}
+        >
+          {renderItem(items[index], index)}
+        </Box>
+      ))}
 
-          return (
-            <Box
-              key={getKey(item, index)}
-              paddingBottom={isLast ? 1 : undefined}
-              paddingTop={isFirst ? 1 : undefined}
-              paddingX={1}
-            >
-              {renderItem(item, index)}
-            </Box>
-          );
-        })}
-      </Stack>
+      {scrollableIndices.length > 0 ? (
+        <Box
+          style={{
+            height: virtualizer.getTotalSize(),
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {virtualRows.map((virtualRow) => {
+            const itemIndex = scrollableIndices[virtualRow.index];
+            const isFirst = virtualRow.index === 0;
+            const isLast = virtualRow.index === scrollableIndices.length - 1;
+
+            return (
+              <Box
+                key={getKey(items[itemIndex], itemIndex)}
+                data-index={virtualRow.index}
+                paddingBottom={isLast ? 1 : undefined}
+                paddingTop={isFirst ? 1 : undefined}
+                paddingX={1}
+                ref={virtualizer.measureElement}
+                style={{
+                  left: 0,
+                  position: 'absolute',
+                  top: 0,
+                  transform: `translateY(${virtualRow.start}px)`,
+                  width: '100%',
+                }}
+              >
+                {renderItem(items[itemIndex], itemIndex)}
+              </Box>
+            );
+          })}
+        </Box>
+      ) : null}
     </Box>
   );
 }

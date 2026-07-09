@@ -1,12 +1,21 @@
 import React from 'react'
-import {defineField, definePlugin, defineType, type FieldProps, type ObjectInputProps} from 'sanity'
+import {
+  defineField,
+  definePlugin,
+  defineType,
+  type FieldProps,
+  type ObjectInputProps,
+  type SchemaTypeDefinition,
+} from 'sanity'
 
 import {LinkInput} from './input'
 import {getReferenceTypesFromRoutes, normalizeLinkHref} from './navigator'
 import type {LinkRouteDefinition, LinksPluginProps} from './navigator'
 import type {LinkFieldPluginOptions, LinkInputProps, LinkSchemaType, LinkValue} from './types'
 
-function resolveRoutes(routes: LinkFieldPluginOptions['routes']): LinkRouteDefinition[] {
+function resolveRoutes(
+  routes: LinkRouteDefinition[] | LinksPluginProps | undefined,
+): LinkRouteDefinition[] {
   if (!routes) {
     return []
   }
@@ -18,18 +27,19 @@ function resolveRoutes(routes: LinkFieldPluginOptions['routes']): LinkRouteDefin
  * A plugin that adds a custom Link field for creating internal and external links,
  * as well as `mailto` and `tel`-links, all using the same intuitive UI.
  *
- * @param options - Options for the plugin. See {@link LinkFieldPluginOptions}
+ * @param routes - Link picker routes (static paths and document folders)
+ * @param options - Extra schema fields, icon, and preview. See {@link LinkFieldPluginOptions}
  *
  * @example Minimal example
  * ```ts
  * // sanity.config.ts
  * import { defineConfig } from 'sanity'
- * import { linkPlugin } from 'sanity-plugin-link'
+ * import { linkPicker } from 'sanity-plugin-link-picker'
  *
- * export default defineConfig((
+ * export default defineConfig({
  *  // ...
  *  plugins: [
- *    linkPlugin()
+ *    linkPicker()
  *  ]
  * })
  *
@@ -48,9 +58,27 @@ function resolveRoutes(routes: LinkFieldPluginOptions['routes']): LinkRouteDefin
  *  ]
  *});
  * ```
+ *
+ * @example With routes and options
+ * ```ts
+ * linkPicker(
+ *   [
+ *     route('Home', '/'),
+ *     documents('Pages', 'page'),
+ *   ],
+ *   {
+ *     fields: [
+ *       defineField({ name: 'parameters', type: 'string' }),
+ *     ],
+ *   },
+ * )
+ * ```
  */
-export const linkPlugin = definePlugin<LinkFieldPluginOptions | void>((opts) => {
-  const {icon, preview, routes, fields = []} = opts || {}
+export function linkPicker(
+  routes: LinkRouteDefinition[] = [],
+  options: LinkFieldPluginOptions = {},
+) {
+  const {icon, preview, fields = []} = options
   const globalRoutes = resolveRoutes(routes)
   const globalReferenceTypes = getReferenceTypesFromRoutes(globalRoutes)
   const referenceField = globalReferenceTypes.length
@@ -119,15 +147,15 @@ export const linkPlugin = definePlugin<LinkFieldPluginOptions | void>((opts) => 
     },
   })
 
-  return {
-    name: 'link-field',
+  return definePlugin({
+    name: 'link-picker',
     schema: {
-      types: [linkType],
+      types: [linkType as SchemaTypeDefinition],
     },
-  }
-})
+  })()
+}
 
-export {defineLinkMenu, linkRoute} from './navigator'
+export {defineLinkMenu, documents, group, route} from './navigator'
 export type {
   LinkDocumentFolder,
   LinkRouteDefinition,

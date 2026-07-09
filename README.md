@@ -36,7 +36,7 @@ Either way you get validation at edit time and a uniform `{label, url}` on the f
 ## Installation
 
 ```sh
-npm install sanity-plugin-link
+npm install sanity-plugin-link-picker
 ```
 
 ## Usage
@@ -45,11 +45,11 @@ Add the plugin to `sanity.config.ts`:
 
 ```ts
 import {defineConfig} from 'sanity'
-import {linkPlugin} from 'sanity-plugin-link'
+import {linkPicker} from 'sanity-plugin-link-picker'
 
 export default defineConfig({
   // ...
-  plugins: [linkPlugin()],
+  plugins: [linkPicker()],
 })
 ```
 
@@ -161,19 +161,17 @@ The field works without configuration for labels and URL values. Add routes when
 
 ```ts
 import {defineConfig} from 'sanity'
-import {linkPlugin, linkRoute} from 'sanity-plugin-link'
+import {linkPicker, route, documents} from 'sanity-plugin-link-picker'
 
 export default defineConfig({
   // ...
   plugins: [
-    linkPlugin({
-      routes: [
-        linkRoute.route('Home', '/'),
-        linkRoute.route('Shop', '/shop'),
-        linkRoute.documents('Pages', 'page'),
-        linkRoute.documents('Products', 'product'),
-      ],
-    }),
+    linkPicker([
+      route('Home', '/'),
+      route('Shop', '/shop'),
+      documents('Pages', 'page'),
+      documents('Products', 'product'),
+    ]),
   ],
 })
 ```
@@ -187,8 +185,8 @@ defineField({
   type: 'link',
   options: {
     routes: [
-      linkRoute.route('Contact', '/contact'),
-      linkRoute.documents('Products', 'product'),
+      route('Contact', '/contact'),
+      documents('Products', 'product'),
     ],
   },
 })
@@ -203,26 +201,32 @@ If your project needs extra fields, append them at the plugin level. You can als
 ```ts
 import {defineField} from 'sanity'
 
-linkPlugin({
-  fields: [
-    defineField({
-      name: 'parameters',
-      title: 'Parameters',
-      type: 'string',
-    }),
-    defineField({
-      name: 'anchor',
-      title: 'Anchor',
-      type: 'string',
-    }),
+linkPicker(
+  [
+    route('Home', '/'),
+    documents('Pages', 'page'),
   ],
-  preview: {
-    select: {
-      title: 'label',
-      subtitle: 'url',
+  {
+    fields: [
+      defineField({
+        name: 'parameters',
+        title: 'Parameters',
+        type: 'string',
+      }),
+      defineField({
+        name: 'anchor',
+        title: 'Anchor',
+        type: 'string',
+      }),
+    ],
+    preview: {
+      select: {
+        title: 'label',
+        subtitle: 'url',
+      },
     },
   },
-})
+)
 ```
 
 Keep the default fields stable when possible. Most projects can model extra frontend behavior in GROQ or in their link resolver without changing the stored shape.
@@ -364,13 +368,15 @@ For the full workflow (validating documents, staging datasets, defensive code, r
 ```ts
 import {
   defineLinkMenu,
-  linkPlugin,
-  linkRoute,
+  documents,
+  group,
+  linkPicker,
+  route,
   type LinkFieldOptions,
   type LinkFieldPluginOptions,
   type LinkRouteDefinition,
   type LinkValue,
-} from 'sanity-plugin-link'
+} from 'sanity-plugin-link-picker'
 ```
 
 ## License
