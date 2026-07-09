@@ -1,6 +1,6 @@
 {
   "name": "sanity-plugin-link-picker",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A small Sanity Studio link field for choosing a label, a URL, or a weak reference.",
   "keywords": [
     "sanity",
@@ -44,8 +44,7 @@
     "@sanity/ui": "^3.2.0",
     "@sanity/util": "^6.2.0",
     "@tanstack/react-virtual": "^3.14.5",
-    "lucide-react": "^1.22.0",
-    "sanity-plugin-utils": "^2.0.3"
+    "lucide-react": "^1.22.0"
   },
   "devDependencies": {
     "@sanity/pkg-utils": "^10.7.2",

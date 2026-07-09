@@ -19,20 +19,29 @@ import {
 import { AtSignIcon, GlobeIcon, LinkIcon, PhoneIcon, type LucideIcon } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import React, {
+  useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
   createContext,
   useContext,
 } from 'react';
-import { useListeningQuery } from 'sanity-plugin-utils';
 import {
-  SanityDocument,
   SanityDefaultPreview,
   SearchResultItemPreview,
-  type QueryParams,
+  createSearch,
+  getSearchableTypes,
+  removeDupes,
+  useClient,
   usePerspective,
   useSchema,
+  useSearchMaxFieldDepth,
+  useValuePreview,
+  useWorkspace,
+  DEFAULT_STUDIO_CLIENT_OPTIONS,
+  type QueryParams,
+  type SchemaType,
 } from 'sanity';
 
 const DefaultIcon = () => <Text>✨</Text>;
@@ -40,6 +49,8 @@ const NAVIGATOR_MAX_HEIGHT = 390;
 const ICON_SIZE = 16;
 const VIRTUAL_LIST_OVERSCAN = 5;
 const VIRTUAL_ROW_ESTIMATE_SIZE = 52;
+const SEARCH_PAGE_SIZE = 25;
+const SEARCH_DEBOUNCE_MS = 300;
 const STICKY_ROW_BACKGROUND =
   'var(--card-bg-color, var(--card-backdrop-color, canvas))';
 
@@ -56,7 +67,7 @@ const defaultLinkTypeIcons: Record<SystemLinkType, LucideIcon> = {
 
 type FolderRow =
   | { type: 'back' }
-  | { type: 'document'; document: SanityDocument }
+  | { type: 'document'; document: SearchDocument }
   | { type: 'empty' }
   | { type: 'skeleton'; index: number };
 
@@ -79,11 +90,12 @@ type SearchResultItem =
     icon?: () => React.ReactNode;
   };
 
-type SearchDocument = SanityDocument & {
-  label?: string;
-  title?: string;
+type SearchDocument = {
   _id: string;
   _type: string;
+  _originalId?: string;
+  label?: string;
+  title?: string;
 };
 
 export type StaticLinkRoute = {
@@ -518,19 +530,6 @@ function normalizeRoutes(routes: LinkRouteDefinition[]): MenuItem[] {
   });
 }
 
-function createDocumentFolderQuery(filter?: string) {
-  const filterQuery = filter ? ` && (${filter})` : '';
-
-  return `*[_type == $type${filterQuery}] {
-    _id,
-    _type,
-    _createdAt,
-    _updatedAt, 
-    'label': coalesce(title, name, slug.current, _id),
-    'title': coalesce(title, name, slug.current, _id)
-  }`;
-}
-
 /**
  * NAVIGATION CONTEXT SYSTEM
  * =========================
@@ -676,6 +675,209 @@ function NavigatorContent({
   );
 }
 
+type DocumentSearchOptions = {
+  debounceMs?: number;
+  filter?: string;
+  filterParams?: QueryParams;
+  /** Empty query + skip scoring = Studio document-list browse mode */
+  mode?: 'search' | 'browse';
+};
+
+function useDocumentSearch(
+  query: string,
+  documentTypes: string[],
+  options: DocumentSearchOptions = {},
+) {
+  const {
+    debounceMs = SEARCH_DEBOUNCE_MS,
+    filter,
+    filterParams,
+    mode = 'search',
+  } = options;
+  const allowEmptyQuery = mode === 'browse';
+  const client = useClient(DEFAULT_STUDIO_CLIENT_OPTIONS);
+  const schema = useSchema();
+  const maxFieldDepth = useSearchMaxFieldDepth();
+  const {search: searchConfig} = useWorkspace();
+  const strategy = searchConfig?.strategy || 'groq2024';
+
+  const searchableTypes = useMemo(() => {
+    if (documentTypes.length === 0) {
+      return [];
+    }
+
+    const allowed = new Set(documentTypes);
+    return getSearchableTypes(schema, documentTypes).filter((type) =>
+      allowed.has(type.name),
+    );
+  }, [documentTypes, schema]);
+
+  const search = useMemo(() => {
+    if (searchableTypes.length === 0) {
+      return null;
+    }
+
+    return createSearch(searchableTypes, client, {
+      tag: 'search.link-picker',
+      unique: true,
+      strategy,
+      maxDepth: maxFieldDepth,
+      ...(filter ? {filter, params: filterParams} : {}),
+    });
+  }, [client, filter, filterParams, maxFieldDepth, searchableTypes, strategy]);
+
+  const [hits, setHits] = useState<SearchDocument[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const requestIdRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const loadMoreSubscriptionRef = useRef<{unsubscribe: () => void} | null>(null);
+
+  const canSearch = Boolean(search && (allowEmptyQuery || query));
+
+  const searchOptions = useMemo(
+    () => ({
+      comments: [
+        allowEmptyQuery
+          ? 'findability-source: link-picker-folder'
+          : 'findability-source: link-picker',
+      ],
+      limit: SEARCH_PAGE_SIZE,
+      perspective: 'raw' as const,
+      ...(allowEmptyQuery
+        ? {
+            skipSortByScore: true,
+            sort: [{field: '_updatedAt', direction: 'desc' as const}],
+          }
+        : {}),
+    }),
+    [allowEmptyQuery],
+  );
+
+  const searchTerms = useMemo(
+    () => ({
+      query: allowEmptyQuery ? '' : query,
+      types: searchableTypes,
+    }),
+    [allowEmptyQuery, query, searchableTypes],
+  );
+
+  useEffect(() => {
+    loadMoreSubscriptionRef.current?.unsubscribe();
+    loadMoreSubscriptionRef.current = null;
+
+    if (!canSearch) {
+      requestIdRef.current += 1;
+      setHits([]);
+      setNextCursor(undefined);
+      setLoading(false);
+      setLoadingMore(false);
+      loadingMoreRef.current = false;
+      return;
+    }
+
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setLoadingMore(false);
+    loadingMoreRef.current = false;
+    setNextCursor(undefined);
+
+    let subscription: {unsubscribe: () => void} | undefined;
+    const run = () => {
+      subscription = search!(searchTerms, searchOptions).subscribe({
+        next: (result) => {
+          if (requestId !== requestIdRef.current) {
+            return;
+          }
+
+          setHits(
+            removeDupes(result.hits.map(({hit}) => hit)) as SearchDocument[],
+          );
+          setNextCursor(result.nextCursor);
+          setLoading(false);
+        },
+        error: () => {
+          if (requestId !== requestIdRef.current) {
+            return;
+          }
+
+          setHits([]);
+          setNextCursor(undefined);
+          setLoading(false);
+        },
+      });
+    };
+
+    const timer =
+      debounceMs > 0 ? window.setTimeout(run, debounceMs) : (run(), undefined);
+
+    return () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+      subscription?.unsubscribe();
+    };
+  }, [canSearch, debounceMs, search, searchOptions, searchTerms]);
+
+  useEffect(() => {
+    return () => {
+      loadMoreSubscriptionRef.current?.unsubscribe();
+      loadMoreSubscriptionRef.current = null;
+    };
+  }, []);
+
+  const loadMore = useCallback(() => {
+    if (!search || !canSearch || !nextCursor || loading || loadingMoreRef.current) {
+      return;
+    }
+
+    const requestId = requestIdRef.current;
+    const cursor = nextCursor;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+
+    loadMoreSubscriptionRef.current?.unsubscribe();
+    loadMoreSubscriptionRef.current = search(searchTerms, {
+      ...searchOptions,
+      cursor,
+    }).subscribe({
+      next: (result) => {
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
+        setHits(
+          (previous) =>
+            removeDupes([
+              ...previous,
+              ...result.hits.map(({hit}) => hit),
+            ]) as SearchDocument[],
+        );
+        setNextCursor(result.nextCursor);
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      },
+      error: () => {
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      },
+    });
+  }, [canSearch, loading, nextCursor, search, searchOptions, searchTerms]);
+
+  return {
+    hits,
+    loading,
+    loadingMore,
+    hasNextPage: Boolean(nextCursor),
+    loadMore,
+  };
+}
+
 function SearchResults({
   documentTypes,
   query,
@@ -686,7 +888,6 @@ function SearchResults({
   staticRoutes: StaticLinkRoute[];
 }) {
   const perspective = usePerspective();
-  const searchPattern = `*${query}*`;
   const typedLinkResult = useMemo(() => getTypedLinkResult(query), [query]);
   const staticResults = useMemo(
     () => staticRoutes
@@ -702,33 +903,13 @@ function SearchResults({
       })),
     [query, staticRoutes],
   );
-  const shouldSearchDocuments = documentTypes.length > 0;
-  const { data, loading } = shouldSearchDocuments
-    ? useListeningQuery<SearchDocument[]>(
-      `*[_type in $types && (
-        title match $query ||
-        name match $query ||
-        slug.current match $query
-      )][0...1000] {
-        _id,
-        _type,
-        _createdAt,
-        _updatedAt,
-        'label': coalesce(title, name, slug.current, _id),
-        'title': coalesce(title, name, slug.current, _id)
-      }`,
-      {
-        params: {
-          query: searchPattern,
-          types: documentTypes,
-        },
-        options: {
-          perspective: (perspective.selectedPerspective || 'drafts') as any,
-        },
-      },
-    )
-    : { data: null, loading: false };
-  const documentResults = Array.isArray(data) ? data : [];
+  const {
+    hits: documentResults,
+    loading,
+    loadingMore,
+    hasNextPage,
+    loadMore,
+  } = useDocumentSearch(query, documentTypes);
   const results = useMemo(
     () => [
       ...(typedLinkResult ? [typedLinkResult] : []),
@@ -740,14 +921,16 @@ function SearchResults({
     ],
     [documentResults, staticResults, typedLinkResult],
   );
-  const resultLabel = `${results.length} ${results.length === 1 ? 'result' : 'results'}`;
+  const resultLabel = loading
+    ? 'Searching...'
+    : `${results.length}${hasNextPage ? '+' : ''} ${results.length === 1 ? 'result' : 'results'}`;
   const rows = useMemo<SearchRow[]>(() => {
     const headerRow: SearchRow = {
       type: 'header',
-      label: loading ? 'Searching...' : resultLabel,
+      label: resultLabel,
     };
 
-    if (loading) {
+    if (loading && results.length === 0) {
       return [
         headerRow,
         ...Array.from({ length: 10 }, (_, index) => ({
@@ -764,8 +947,14 @@ function SearchResults({
     return [
       headerRow,
       ...results.map((item) => ({ type: 'result' as const, item })),
+      ...(loadingMore
+        ? Array.from({ length: 3 }, (_, index) => ({
+            type: 'skeleton' as const,
+            index: results.length + index,
+          }))
+        : []),
     ];
-  }, [loading, resultLabel, results]);
+  }, [loading, loadingMore, resultLabel, results]);
 
   return (
     <Flex gap={1} justify="flex-start" direction="column">
@@ -780,6 +969,7 @@ function SearchResults({
         }}
         items={rows}
         maxHeight={NAVIGATOR_MAX_HEIGHT}
+        onEndReached={hasNextPage ? loadMore : undefined}
         pinnedIndices={[0]}
         renderItem={(row) => {
           if (row.type === 'header') {
@@ -916,53 +1106,31 @@ function Folder({
   item: MenuItem;
 }) {
   const { popFolder } = useNavigation();
-
   const perspective = usePerspective();
-  const query = useMemo(
-    () => item.documentType ? createDocumentFolderQuery(item.filter) : '',
-    [item.documentType, item.filter],
+  const documentTypes = useMemo(
+    () => (item.documentType ? [item.documentType] : []),
+    [item.documentType],
   );
-  const params = useMemo(
-    () => {
-      const nextParams: QueryParams = {
-        ...(item.filterParams || {}),
-      };
-
-      if (item.documentType) {
-        nextParams.type = item.documentType;
-      }
-
-      return nextParams;
-    },
-    [item.documentType, item.filterParams],
-  );
-
-  const { data, loading } = item.documentType
-    ? useListeningQuery<SanityDocument[]>(query, {
-      params,
-      options: {
-        perspective: (perspective.selectedPerspective || 'drafts') as any,
-      },
-    })
-    : { data: null, loading: false };
-
-  const skeletonRowCount = 10;
-
-  const items: SanityDocument[] = useMemo(() => {
-    if (!data || !Array.isArray(data)) return [];
-
-    const typedData = data as SanityDocument[];
-
-    return typedData;
-  }, [data]);
+  const {
+    hits: items,
+    loading,
+    loadingMore,
+    hasNextPage,
+    loadMore,
+  } = useDocumentSearch('', documentTypes, {
+    debounceMs: 0,
+    filter: item.filter,
+    filterParams: item.filterParams,
+    mode: 'browse',
+  });
 
   const rows = useMemo<FolderRow[]>(() => {
     const backRow: FolderRow = { type: 'back' };
 
-    if (loading) {
+    if (loading && items.length === 0) {
       return [
         backRow,
-        ...Array.from({ length: skeletonRowCount }, (_, index) => ({
+        ...Array.from({ length: 10 }, (_, index) => ({
           type: 'skeleton' as const,
           index,
         })),
@@ -979,13 +1147,18 @@ function Folder({
         type: 'document' as const,
         document,
       })),
+      ...(loadingMore
+        ? Array.from({ length: 3 }, (_, index) => ({
+            type: 'skeleton' as const,
+            index: items.length + index,
+          }))
+        : []),
     ];
-  }, [item.documentType, items, loading]);
-  const resultCount = items.length;
-  const resultLabel = `${resultCount} ${resultCount === 1 ? 'result' : 'results'}`;
+  }, [item.documentType, items, loading, loadingMore]);
+  const resultLabel = `${items.length}${hasNextPage ? '+' : ''} ${items.length === 1 ? 'result' : 'results'}`;
 
   return (
-    <Flex 
+    <Flex
       gap={1}
       justify="flex-start"
       direction="column"
@@ -999,6 +1172,7 @@ function Folder({
         }}
         items={rows}
         maxHeight={NAVIGATOR_MAX_HEIGHT}
+        onEndReached={hasNextPage ? loadMore : undefined}
         pinnedIndices={[0]}
         renderItem={(row) => {
           if (row.type === 'back') {
@@ -1053,6 +1227,7 @@ type ScrollableListProps<T> = {
   getKey: (item: T, index: number) => string | number;
   items: T[];
   maxHeight: number;
+  onEndReached?: () => void;
   overscan?: number;
   pinnedIndices?: number[];
   renderItem: (item: T, index: number) => React.ReactNode;
@@ -1063,16 +1238,22 @@ function ScrollableList<T>({
   getKey,
   items,
   maxHeight,
+  onEndReached,
   overscan = VIRTUAL_LIST_OVERSCAN,
   pinnedIndices = [],
   renderItem,
 }: ScrollableListProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const onEndReachedRef = useRef(onEndReached);
   const pinnedSet = useMemo(() => new Set(pinnedIndices), [pinnedIndices]);
   const scrollableIndices = useMemo(
     () => items.map((_, index) => index).filter((index) => !pinnedSet.has(index)),
     [items, pinnedSet],
   );
+
+  useEffect(() => {
+    onEndReachedRef.current = onEndReached;
+  }, [onEndReached]);
 
   const virtualizer = useVirtualizer({
     count: scrollableIndices.length,
@@ -1085,6 +1266,17 @@ function ScrollableList<T>({
   });
 
   const virtualRows = virtualizer.getVirtualItems();
+  const lastVirtualRow = virtualRows[virtualRows.length - 1];
+
+  useEffect(() => {
+    if (!onEndReachedRef.current || !lastVirtualRow) {
+      return;
+    }
+
+    if (lastVirtualRow.index >= scrollableIndices.length - 1 - VIRTUAL_LIST_OVERSCAN) {
+      onEndReachedRef.current();
+    }
+  }, [lastVirtualRow, scrollableIndices.length]);
 
   return (
     <Box
@@ -1183,7 +1375,7 @@ function DocumentItem({
   perspectiveStack,
 }: {
   icon?: () => React.ReactNode;
-  item: SanityDocument & {
+  item: {
     title?: string;
     label?: string;
     _type?: string;
@@ -1195,6 +1387,15 @@ function DocumentItem({
   const schema = useSchema();
   const schemaType = item._type ? schema.get(item._type) : undefined;
   const fallbackMedia = item._id === 'default' ? DefaultIcon : icon;
+  const preview = useValuePreview({
+    enabled: Boolean(schemaType && item._id && item._type),
+    schemaType: schemaType as SchemaType | undefined,
+    value: item._id && item._type ? {_id: item._id, _type: item._type} : undefined,
+    perspectiveStack,
+  });
+  const previewTitle =
+    typeof preview?.value?.title === 'string' ? preview.value.title : undefined;
+  const label = item.label || item.title || previewTitle;
 
   return (
     <Button
@@ -1204,7 +1405,7 @@ function DocumentItem({
       onClick={() =>
         onSelect?.({
           reference: item._id,
-          label: item.label || item.title,
+          label,
           _type: item._type,
           _id: item._id,
         })
@@ -1223,7 +1424,7 @@ function DocumentItem({
         <Box style={{ width: '100%' }}>
           <SanityDefaultPreview
             layout="compact"
-            title={item.label || item.title}
+            title={label}
             media={fallbackMedia}
             icon={fallbackMedia ? undefined : false}
           />
