@@ -379,6 +379,8 @@ import {
 } from 'sanity-plugin-link-picker'
 ```
 
+Upgrading from `sanity-plugin-link` or an earlier `linkPlugin` / `linkRoute` API? See [MIGRATION.md](./MIGRATION.md).
+
 ## License
 
 [MIT](LICENSE) © Dennis Regalado
